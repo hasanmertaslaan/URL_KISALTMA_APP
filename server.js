@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { nanoid } = require('nanoid');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -18,7 +19,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Veritabanı bağlantısı
 const db = new sqlite3.Database('./urlshortener.db', (err) => {
@@ -237,7 +238,7 @@ app.post('/api/shorten', freeUserLimiter, authenticateToken, (req, res) => {
 
 // Root route - Ana sayfa
 app.get('/', (req, res) => {
-  res.sendFile('index.html', { root: './public' });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // URL yönlendirme - REKLAMLI (Para kazandıran versiyon)
