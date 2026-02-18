@@ -328,7 +328,7 @@ app.get('/', (req, res) => {
                     token = data.token;
                     localStorage.setItem('token', token);
                     showMessage('Giriş başarılı!', 'success');
-                    setTimeout(() => location.reload(), 1000);
+                    await checkAuth();
                 } else {
                     showMessage(data.error || 'Giriş başarısız', 'error');
                 }
@@ -336,6 +336,105 @@ app.get('/', (req, res) => {
                 showMessage('Bağlantı hatası', 'error');
             }
         }
+        
+        async function checkAuth() {
+            if (!token) return;
+            try {
+                const res = await fetch(API_URL + '/api/user/status', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    const user = await res.json();
+                    showApp(user);
+                } else {
+                    localStorage.removeItem('token');
+                    token = null;
+                }
+            } catch (error) {
+                console.error('Auth hatası:', error);
+            }
+        }
+        
+        function showApp(user) {
+            document.getElementById('auth-section').style.display = 'none';
+            if (!document.getElementById('app-section')) {
+                const appSection = document.createElement('div');
+                appSection.id = 'app-section';
+                appSection.innerHTML = '<div style="margin-top: 20px;">' +
+                    '<h2>Hoş geldiniz, ' + user.email + '!</h2>' +
+                    '<p style="margin: 20px 0;">Giriş başarılı. URL kısaltma özelliklerini kullanabilirsiniz.</p>' +
+                    '<div style="margin: 20px 0;">' +
+                    '<h3>URL Kısalt</h3>' +
+                    '<input type="url" id="original-url" placeholder="Uzun URL..." style="width: 100%; padding: 12px; margin: 10px 0; border: 2px solid #e0e0e0; border-radius: 8px;">' +
+                    '<button onclick="shortenUrl()" style="padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer;">Kısalt</button>' +
+                    '</div>' +
+                    '<div id="result" style="display: none; margin: 20px 0;">' +
+                    '<h3>Kısaltılmış URL:</h3>' +
+                    '<input type="text" id="short-url" readonly style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px;">' +
+                    '<button onclick="copyUrl()" style="padding: 12px 24px; margin-top: 10px; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer;">Kopyala</button>' +
+                    '</div>' +
+                    '<button onclick="logout()" style="padding: 12px 24px; margin-top: 20px; background: #f44336; color: white; border: none; border-radius: 8px; cursor: pointer;">Çıkış Yap</button>' +
+                    '</div>';
+                document.querySelector('.container').appendChild(appSection);
+            } else {
+                document.getElementById('app-section').style.display = 'block';
+            }
+        }
+        
+        async function shortenUrl() {
+            if (!token) {
+                showMessage('Giriş yapmanız gerekiyor', 'error');
+                return;
+            }
+            const originalUrl = document.getElementById('original-url').value;
+            if (!originalUrl) {
+                showMessage('URL gerekli', 'error');
+                return;
+            }
+            try {
+                const res = await fetch(API_URL + '/api/shorten', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ originalUrl })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('short-url').value = data.shortUrl;
+                    document.getElementById('result').style.display = 'block';
+                    showMessage('URL başarıyla kısaltıldı!', 'success');
+                } else {
+                    showMessage(data.error || 'URL kısaltılamadı', 'error');
+                }
+            } catch (error) {
+                showMessage('Sunucu hatası', 'error');
+            }
+        }
+        
+        function copyUrl() {
+            const shortUrl = document.getElementById('short-url');
+            shortUrl.select();
+            document.execCommand('copy');
+            showMessage('URL kopyalandı!', 'success');
+        }
+        
+        function logout() {
+            token = null;
+            localStorage.removeItem('token');
+            document.getElementById('auth-section').style.display = 'block';
+            if (document.getElementById('app-section')) {
+                document.getElementById('app-section').style.display = 'none';
+            }
+        }
+        
+        // Sayfa yüklendiğinde token kontrolü
+        window.addEventListener('DOMContentLoaded', () => {
+            if (token) {
+                checkAuth();
+            }
+        });
         
         async function register() {
             const email = document.getElementById('register-email').value;
@@ -351,7 +450,7 @@ app.get('/', (req, res) => {
                     token = data.token;
                     localStorage.setItem('token', token);
                     showMessage('Kayıt başarılı!', 'success');
-                    setTimeout(() => location.reload(), 1000);
+                    await checkAuth();
                 } else {
                     showMessage(data.error || 'Kayıt başarısız', 'error');
                 }
@@ -680,9 +779,55 @@ app.get('/api/my-revenue', authenticateToken, (req, res) => {
   });
 });
 
+// Admin kullanıcısını zorla oluştur (eğer yoksa)
+app.post('/api/admin/create', async (req, res) => {
+  db.get('SELECT * FROM users WHERE email = ?', ['admin@urlshortener.com'], async (err, admin) => {
+    if (err) return res.status(500).json({ error: 'Sunucu hatası' });
+    
+    if (admin) {
+      return res.json({ 
+        message: 'Admin kullanıcısı zaten mevcut',
+        email: 'admin@urlshortener.com',
+        password: 'admin123'
+      });
+    }
+    
+    try {
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      db.run('INSERT INTO users (email, password, is_premium) VALUES (?, ?, 1)', 
+        ['admin@urlshortener.com', hashedPassword],
+        function(insertErr) {
+          if (insertErr) {
+            return res.status(500).json({ error: 'Admin oluşturulamadı: ' + insertErr.message });
+          }
+          res.json({ 
+            message: 'Admin kullanıcısı oluşturuldu',
+            email: 'admin@urlshortener.com',
+            password: 'admin123',
+            id: this.lastID
+          });
+        }
+      );
+    } catch (error) {
+      res.status(500).json({ error: 'Şifre hash hatası' });
+    }
+  });
+});
+
+// Admin bilgilerini göster
+app.get('/api/admin/info', (req, res) => {
+  res.json({
+    email: 'admin@urlshortener.com',
+    password: 'admin123',
+    note: 'Bu bilgileri kullanarak giriş yapabilirsiniz'
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);
   console.log(`💰 GELİR MODU AKTİF - Her tıklama para kazandırıyor!`);
   console.log(`👤 Admin: admin@urlshortener.com / admin123`);
+  console.log(`📝 Admin oluşturma: POST /api/admin/create`);
+  console.log(`ℹ️  Admin bilgileri: GET /api/admin/info`);
 });
 
