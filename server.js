@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const { nanoid } = require('nanoid');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -238,7 +239,139 @@ app.post('/api/shorten', freeUserLimiter, authenticateToken, (req, res) => {
 
 // Root route - Ana sayfa
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  
+  // Dosya varsa gönder, yoksa fallback HTML göster
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    // Fallback: index.html dosyasını direkt serve et
+    const fallbackHtml = `
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Kısaltıcı - Premium URL Servisi</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 20px; padding: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        h1 { color: #667eea; margin-bottom: 10px; }
+        .tagline { color: #666; margin-bottom: 30px; }
+        .auth-section { margin-bottom: 30px; }
+        .auth-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn { flex: 1; padding: 12px; border: none; background: #f0f0f0; border-radius: 8px; cursor: pointer; }
+        .tab-btn.active { background: #667eea; color: white; }
+        .auth-form { display: flex; flex-direction: column; gap: 15px; }
+        input { padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; }
+        button { padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; background: #667eea; color: white; }
+        button:hover { background: #5568d3; }
+        .message { padding: 15px; border-radius: 8px; margin-top: 20px; display: none; }
+        .message.success { background: #4caf50; color: white; }
+        .message.error { background: #f44336; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔗 URL Kısaltıcı</h1>
+            <p class="tagline">Hızlı, güvenli ve premium özelliklerle URL'lerinizi kısaltın</p>
+        </header>
+        <div id="auth-section" class="auth-section">
+            <div class="auth-tabs">
+                <button class="tab-btn active" onclick="showLogin()">Giriş Yap</button>
+                <button class="tab-btn" onclick="showRegister()">Kayıt Ol</button>
+            </div>
+            <div id="login-form" class="auth-form">
+                <input type="email" id="login-email" placeholder="Email" required>
+                <input type="password" id="login-password" placeholder="Şifre" required>
+                <button onclick="login()">Giriş Yap</button>
+            </div>
+            <div id="register-form" class="auth-form" style="display: none;">
+                <input type="email" id="register-email" placeholder="Email" required>
+                <input type="password" id="register-password" placeholder="Şifre" required>
+                <button onclick="register()">Kayıt Ol</button>
+            </div>
+        </div>
+        <div id="message" class="message"></div>
+    </div>
+    <script>
+        const API_URL = window.location.origin;
+        let token = localStorage.getItem('token');
+        
+        function showLogin() {
+            document.getElementById('login-form').style.display = 'flex';
+            document.getElementById('register-form').style.display = 'none';
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        function showRegister() {
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('register-form').style.display = 'flex';
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        async function login() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            try {
+                const res = await fetch(API_URL + '/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    showMessage('Giriş başarılı!', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error || 'Giriş başarısız', 'error');
+                }
+            } catch (error) {
+                showMessage('Bağlantı hatası', 'error');
+            }
+        }
+        
+        async function register() {
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            try {
+                const res = await fetch(API_URL + '/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    showMessage('Kayıt başarılı!', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error || 'Kayıt başarısız', 'error');
+                }
+            } catch (error) {
+                showMessage('Bağlantı hatası', 'error');
+            }
+        }
+        
+        function showMessage(msg, type) {
+            const msgEl = document.getElementById('message');
+            msgEl.textContent = msg;
+            msgEl.className = 'message ' + type;
+            msgEl.style.display = 'block';
+            setTimeout(() => msgEl.style.display = 'none', 3000);
+        }
+    </script>
+</body>
+</html>`;
+    res.send(fallbackHtml);
+  }
 });
 
 // URL yönlendirme - REKLAMLI (Para kazandıran versiyon)
