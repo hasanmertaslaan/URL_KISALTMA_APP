@@ -235,6 +235,11 @@ app.post('/api/shorten', freeUserLimiter, authenticateToken, (req, res) => {
   });
 });
 
+// Root route - Ana sayfa
+app.get('/', (req, res) => {
+  res.sendFile('index.html', { root: './public' });
+});
+
 // URL yönlendirme - REKLAMLI (Para kazandıran versiyon)
 app.get('/:code', (req, res) => {
   const { code } = req.params;
