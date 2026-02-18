@@ -12,6 +12,8 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const ADSENSE_CLIENT_ID = process.env.ADSENSE_CLIENT_ID || ''; // ca-pub-XXXXXXXXXX formatında
+const ADSENSE_AD_SLOT = process.env.ADSENSE_AD_SLOT || ''; // Reklam slot ID'si
 
 // Production için güvenlik ayarları
 if (process.env.NODE_ENV === 'production') {
@@ -481,26 +483,47 @@ app.get('/:code', (req, res) => {
     if (err) return res.status(500).json({ error: 'Sunucu hatası' });
     if (!url) return res.status(404).send('URL bulunamadı');
 
-    // Tıklama geçmişine kaydet
-    db.run(
-      'INSERT INTO clicks (url_id, ip_address, user_agent, referer) VALUES (?, ?, ?, ?)',
-      [url.id, req.ip, req.get('user-agent'), req.get('referer')],
-      function(clickErr) {
-        if (clickErr) console.error('Click kayıt hatası:', clickErr);
-        
-        const clickId = this.lastID;
-
-        // Tıklama sayısını artır
-        db.run('UPDATE urls SET click_count = click_count + 1 WHERE id = ?', [url.id]);
-
-        // GELİR KAZAN: Her tıklamada $0.01-0.05 arası gelir (reklam geliri simülasyonu)
-        const revenueAmount = (Math.random() * 0.04 + 0.01).toFixed(4); // $0.01 - $0.05
-        
-        // Gelir kaydı
+    // URL sahibinin premium olup olmadığını kontrol et
+    db.get('SELECT is_premium FROM users WHERE id = ?', [url.user_id], (err, user) => {
+      if (err) return res.status(500).json({ error: 'Sunucu hatası' });
+      
+      // Premium kullanıcıların URL'leri direkt yönlendirilir (reklam yok)
+      if (user && user.is_premium === 1) {
+        // Tıklama geçmişine kaydet
         db.run(
-          'INSERT INTO revenue (url_id, revenue_type, amount, click_id) VALUES (?, ?, ?, ?)',
-          [url.id, 'ad_revenue', revenueAmount, clickId]
+          'INSERT INTO clicks (url_id, ip_address, user_agent, referer) VALUES (?, ?, ?, ?)',
+          [url.id, req.ip, req.get('user-agent'), req.get('referer')],
+          function(clickErr) {
+            if (clickErr) console.error('Click kayıt hatası:', clickErr);
+            db.run('UPDATE urls SET click_count = click_count + 1 WHERE id = ?', [url.id]);
+            // Premium kullanıcılar için direkt yönlendir
+            return res.redirect(url.original_url);
+          }
         );
+        return;
+      }
+
+      // Ücretsiz kullanıcılar için reklam göster
+      // Tıklama geçmişine kaydet
+      db.run(
+        'INSERT INTO clicks (url_id, ip_address, user_agent, referer) VALUES (?, ?, ?, ?)',
+        [url.id, req.ip, req.get('user-agent'), req.get('referer')],
+        function(clickErr) {
+          if (clickErr) console.error('Click kayıt hatası:', clickErr);
+          
+          const clickId = this.lastID;
+
+          // Tıklama sayısını artır
+          db.run('UPDATE urls SET click_count = click_count + 1 WHERE id = ?', [url.id]);
+
+          // GELİR KAZAN: Her tıklamada $0.01-0.05 arası gelir (reklam geliri simülasyonu)
+          const revenueAmount = (Math.random() * 0.04 + 0.01).toFixed(4); // $0.01 - $0.05
+          
+          // Gelir kaydı
+          db.run(
+            'INSERT INTO revenue (url_id, revenue_type, amount, click_id) VALUES (?, ?, ?, ?)',
+            [url.id, 'ad_revenue', revenueAmount, clickId]
+          );
 
         // Reklam sayfası göster (5 saniye sonra yönlendir)
         const adPage = `
@@ -568,34 +591,39 @@ app.get('/:code', (req, res) => {
     <div class="container">
         <h1>🔗 Yönlendiriliyorsunuz...</h1>
         <div class="ad-container">
-            <!-- GOOGLE ADSENSE KODUNU BURAYA EKLEYİN -->
-            <!-- AdSense hesabınızı açtıktan sonra buraya reklam kodunu yapıştırın -->
-            <div class="ad-placeholder">
-                📢 REKLAM ALANI<br><br>
-                <strong>GERÇEK PARA KAZANMAK İÇİN:</strong><br>
-                1. Google AdSense hesabı açın (https://adsense.google.com)<br>
-                2. Reklam kodunu alın<br>
-                3. Bu alana yapıştırın<br><br>
-                <small>Şu an simüle edilmiş gelir gösteriliyor</small>
-            </div>
-            
-            <!-- ÖRNEK ADSENSE KODU (GERÇEK KODUNUZLA DEĞİŞTİRİN):
-            <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXX"
+            ${ADSENSE_CLIENT_ID ? `
+            <!-- GOOGLE ADSENSE REKLAMI AKTİF -->
+            <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT_ID}"
                  crossorigin="anonymous"></script>
             <ins class="adsbygoogle"
                  style="display:block"
-                 data-ad-client="ca-pub-XXXXXXXXXX"
-                 data-ad-slot="XXXXXXXXXX"
+                 data-ad-client="${ADSENSE_CLIENT_ID}"
+                 ${ADSENSE_AD_SLOT ? `data-ad-slot="${ADSENSE_AD_SLOT}"` : ''}
                  data-ad-format="auto"
                  data-full-width-responsive="true"></ins>
             <script>
                  (adsbygoogle = window.adsbygoogle || []).push({});
             </script>
-            -->
+            ` : `
+            <!-- GOOGLE ADSENSE KODUNU EKLEYİN -->
+            <div class="ad-placeholder">
+                📢 REKLAM ALANI<br><br>
+                <strong>GERÇEK PARA KAZANMAK İÇİN:</strong><br>
+                1. Google AdSense hesabı açın (https://adsense.google.com)<br>
+                2. Publisher ID'nizi alın (ca-pub-XXXXXXXXXX)<br>
+                3. Render'da Environment Variable ekleyin:<br>
+                   - Key: ADSENSE_CLIENT_ID<br>
+                   - Value: ca-pub-XXXXXXXXXX<br><br>
+                <small>Şu an simüle edilmiş gelir gösteriliyor</small>
+            </div>
+            `}
         </div>
         <div class="countdown" id="countdown">5</div>
         <p>saniye sonra yönlendirileceksiniz</p>
-        <button class="skip-btn" onclick="skipAd()">Reklamı Geç (Premium)</button>
+        <div style="margin-top: 20px;">
+            <p style="font-size: 14px; opacity: 0.8;">Reklamları atlamak için Premium üyeliğe geçin!</p>
+            <a href="${req.protocol}://${req.get('host')}" style="color: white; text-decoration: underline;">Premium'a Geç</a>
+        </div>
     </div>
     <script>
         let timeLeft = 5;
@@ -610,19 +638,14 @@ app.get('/:code', (req, res) => {
                 window.location.href = targetUrl;
             }
         }, 1000);
-        
-        function skipAd() {
-            // Premium kullanıcılar için reklamı geçme özelliği
-            alert('Premium üyelik ile reklamsız deneyim!');
-            window.location.href = targetUrl;
-        }
     </script>
 </body>
 </html>`;
 
         res.send(adPage);
-      }
-    );
+        }
+      );
+    });
   });
 });
 
