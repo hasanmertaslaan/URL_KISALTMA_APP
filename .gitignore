@@ -1,0 +1,6 @@
+node_modules/
+urlshortener.db
+.env
+.DS_Store
+*.log
+.env.local
